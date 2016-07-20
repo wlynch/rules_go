@@ -32,16 +32,23 @@ var (
 	goPrefix = flag.String("go_prefix", "", "go_prefix of the target workspace")
 	repoRoot = flag.String("repo_root", "", "path to a directory which corresponds to go_prefix")
 	mode     = flag.String("mode", "print", "print, fix or diff")
+	style    = flag.String("style", "structured", "structued for flat")
 )
 
-var modeFromName = map[string]func(*bzl.File) error{
-	"print": printFile,
-	"fix":   fixFile,
-	"diff":  diffFile,
-}
+var (
+	modeFromName = map[string]func(*bzl.File) error{
+		"print": printFile,
+		"fix":   fixFile,
+		"diff":  diffFile,
+	}
+	styleFromName = map[string]generator.Style{
+		"structured": generator.StructuredStyle,
+		"flat":       generator.FlatStyle,
+	}
+)
 
-func run(dirs []string, emit func(*bzl.File) error) error {
-	g, err := generator.New(*repoRoot, *goPrefix)
+func run(dirs []string, s generator.Style, emit func(*bzl.File) error) error {
+	g, err := generator.New(*repoRoot, *goPrefix, s)
 	if err != nil {
 		return err
 	}
@@ -80,6 +87,12 @@ In print mode, gazelle prints reconciled BUILD files to stdout.
 In fix mode, gazelle creates BUILD files or updates existing ones.
 In diff mode, gazelle shows diff.
 
+There are two output styles of gazelle.
+In structured style, gazelle maps a Go package into a Bazel package and creates 
+a BUILD file for each.
+IN flat style, gazelle creates only one BUILD file into the repository root,
+which covers all the Go packages under the repository.
+
 FLAGS:
 `)
 	flag.PrintDefaults()
@@ -106,8 +119,12 @@ func main() {
 	if emit == nil {
 		log.Fatalf("unrecognized mode %s", *mode)
 	}
+	s, ok := styleFromName[*style]
+	if !ok {
+		log.Fatalf("unrecognized style %s", *style)
+	}
 
-	if err := run(flag.Args(), emit); err != nil {
+	if err := run(flag.Args(), s, emit); err != nil {
 		log.Fatal(err)
 	}
 }

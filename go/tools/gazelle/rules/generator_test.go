@@ -50,8 +50,8 @@ func packageFromDir(t *testing.T, dir string) *build.Package {
 	return pkg
 }
 
-func TestGenerator(t *testing.T) {
-	g := rules.NewGenerator("example.com/repo")
+func TestGeneratorStructured(t *testing.T) {
+	g := rules.NewGenerator("example.com/repo", rules.StructuredStyle)
 	for _, spec := range []struct {
 		dir  string
 		want string
@@ -116,8 +116,71 @@ func TestGenerator(t *testing.T) {
 	}
 }
 
+func TestGeneratorFlat(t *testing.T) {
+	g := rules.NewGenerator("example.com/repo", rules.FlatStyle)
+	for _, spec := range []struct {
+		dir  string
+		want string
+	}{
+		{
+			dir: "lib",
+			want: `
+				go_library(
+					name = "lib",
+					srcs = [
+						"lib/doc.go",
+						"lib/lib.go",
+					],
+					deps = [":lib/deep"],
+				)
+
+				go_test(
+					name = "lib_test",
+					srcs = ["lib/lib_test.go"],
+					library = ":lib",
+				)
+
+				go_test(
+					name = "lib_xtest",
+					srcs = ["lib/lib_external_test.go"],
+					deps = [":lib"],
+				)
+			`,
+		},
+		{
+			dir: "lib/deep",
+			want: `
+				go_library(
+					name = "lib/deep",
+					srcs = ["lib/deep/thought.go"],
+				)
+			`,
+		},
+		{
+			dir: "bin",
+			want: `
+				go_binary(
+					name = "bin",
+					srcs = ["bin/main.go"],
+					deps = [":lib"],
+				)
+			`,
+		},
+	} {
+		pkg := packageFromDir(t, filepath.FromSlash(spec.dir))
+		rules, err := g.Generate(spec.dir, pkg)
+		if err != nil {
+			t.Errorf("g.Generate(%q, %#v) failed with %v; want success", spec.dir, pkg, err)
+		}
+
+		if got, want := format(rules), canonicalize(t, spec.dir+"/BUILD", spec.want); got != want {
+			t.Errorf("g.Generate(%q, %#v) = %s; want %s", spec.dir, pkg, got, want)
+		}
+	}
+}
+
 func TestGeneratorGoPrefix(t *testing.T) {
-	g := rules.NewGenerator("example.com/repo/lib")
+	g := rules.NewGenerator("example.com/repo/lib", rules.StructuredStyle)
 	pkg := packageFromDir(t, filepath.FromSlash("lib"))
 	rules, err := g.Generate("", pkg)
 	if err != nil {

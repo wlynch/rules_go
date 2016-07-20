@@ -8,6 +8,7 @@ go_library(
         "generator.go",
         "resolve.go",
         "resolve_external.go",
+        "resolve_flat.go",
         "resolve_structured.go",
     ],
     visibility = ["//visibility:public"],
@@ -21,6 +22,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "resolve_external_test.go",
+        "resolve_flat_test.go",
         "resolve_structured_test.go",
         "resolve_test.go",
     ],

@@ -66,7 +66,7 @@ func TestGenerator(t *testing.T) {
 	}
 
 	repo := filepath.Join(testdata.Dir(), "repo")
-	g, err := New(repo, "example.com/repo")
+	g, err := New(repo, "example.com/repo", StructuredStyle)
 	if err != nil {
 		t.Errorf(`New(%q, "example.com/repo") failed with %v; want success`, repo, err)
 		return

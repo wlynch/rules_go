@@ -49,17 +49,45 @@ type Generator interface {
 	Generate(rel string, pkg *build.Package) ([]*bzl.Rule, error)
 }
 
+// A Style describes a strategy of organizing BUILD files
+type Style int
+
+const (
+	// StructuredStyle means that individual Go packages will have their own Bazel packages.
+	StructuredStyle = Style(iota) + 1
+	// FlatStyle means that the caller concatenates Go packages under a specific go_prefix
+	// into a single BUILD file.
+	FlatStyle
+)
+
 // NewGenerator returns an implementation of Generator.
 //
 // "goPrefix" is the go_prefix corresponding to the repository root.
 // See also https://github.com/bazelbuild/rules_go#go_prefix.
-func NewGenerator(goPrefix string) Generator {
+func NewGenerator(goPrefix string, s Style) Generator {
 	var (
-		// TODO(yugui) Support another resolver to cover the pattern 2 in
-		// https://github.com/bazelbuild/rules_go/issues/16#issuecomment-216010843
-		r = structuredResolver{goPrefix: goPrefix}
+		r      labelResolver
+		refSrc func(rel string, srcs []string) []string
+
 		e externalResolver
 	)
+
+	switch s {
+	case StructuredStyle:
+		r = structuredResolver{goPrefix: goPrefix}
+		refSrc = func(rel string, srcs []string) []string { return srcs }
+	case FlatStyle:
+		r = flatResolver{goPrefix: goPrefix}
+		refSrc = func(rel string, srcs []string) []string {
+			var ret []string
+			for _, s := range srcs {
+				ret = append(ret, path.Join(rel, s))
+			}
+			return ret
+		}
+	default:
+		panic(fmt.Sprintf("unrecognized style: %d", s))
+	}
 
 	return &generator{
 		goPrefix: goPrefix,
@@ -69,12 +97,14 @@ func NewGenerator(goPrefix string) Generator {
 			}
 			return r.resolve(importpath, dir)
 		}),
+		refSrc: refSrc,
 	}
 }
 
 type generator struct {
 	goPrefix string
 	r        labelResolver
+	refSrc   func(rel string, srcs []string) []string
 }
 
 func (g *generator) Generate(rel string, pkg *build.Package) ([]*bzl.Rule, error) {
@@ -112,8 +142,12 @@ func (g *generator) Generate(rel string, pkg *build.Package) ([]*bzl.Rule, error
 }
 
 func (g *generator) generate(rel string, pkg *build.Package) (*bzl.Rule, error) {
+	l, err := g.r.resolve(path.Join(g.goPrefix, rel), "")
+	if err != nil {
+		return nil, err
+	}
+	name := l.name
 	kind := "go_library"
-	name := defaultLibName
 	if pkg.IsCommand() {
 		kind = "go_binary"
 		name = path.Base(pkg.Dir)
@@ -128,7 +162,7 @@ func (g *generator) generate(rel string, pkg *build.Package) (*bzl.Rule, error) 
 
 	attrs := []keyvalue{
 		{key: "name", value: name},
-		{key: "srcs", value: pkg.GoFiles},
+		{key: "srcs", value: g.refSrc(rel, pkg.GoFiles)},
 		{key: "visibility", value: []string{visibility}},
 	}
 
@@ -150,7 +184,7 @@ func (g *generator) generateTest(rel string, pkg *build.Package, library string)
 	}
 	attrs := []keyvalue{
 		{key: "name", value: name},
-		{key: "srcs", value: pkg.TestGoFiles},
+		{key: "srcs", value: g.refSrc(rel, pkg.TestGoFiles)},
 		{key: "library", value: ":" + library},
 	}
 
@@ -171,7 +205,7 @@ func (g *generator) generateXTest(rel string, pkg *build.Package, library string
 	}
 	attrs := []keyvalue{
 		{key: "name", value: name},
-		{key: "srcs", value: pkg.XTestGoFiles},
+		{key: "srcs", value: g.refSrc(rel, pkg.XTestGoFiles)},
 	}
 
 	deps, err := g.dependencies(pkg.XTestImports, rel)

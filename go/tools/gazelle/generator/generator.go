@@ -28,9 +28,16 @@ import (
 	"github.com/bazelbuild/rules_go/go/tools/gazelle/rules"
 )
 
+// A Style describes a strategy of organizing BUILD files
+type Style rules.Style
+
 const (
-	// goRulesBzl is the label of the Skylark file which provides Go rules
-	goRulesBzl = "@io_bazel_rules_go//go:def.bzl"
+	// StructuredStyle means that individual Go packages will have their own
+	// Bazel packages.
+	StructuredStyle = Style(rules.StructuredStyle)
+	// FlatStyle means that the given repoRoot has only one BUILD file for all
+	// the subpacakges.
+	FlatStyle = Style(rules.FlatStyle)
 )
 
 // Generator generates BUILD files for a Go repository.
@@ -39,6 +46,7 @@ type Generator struct {
 	goPrefix string
 	bctx     build.Context
 	g        rules.Generator
+	s        Style
 }
 
 // New returns a new Generator which is responsible for a Go repository.
@@ -46,7 +54,7 @@ type Generator struct {
 // "repoRoot" is a path to the root directory of the repository.
 // "goPrefix" is the go_prefix corresponding to the repository root directory.
 // See also https://github.com/bazelbuild/rules_go#go_prefix.
-func New(repoRoot, goPrefix string) (*Generator, error) {
+func New(repoRoot, goPrefix string, s Style) (*Generator, error) {
 	bctx := build.Default
 	// Ignore source files in $GOROOT and $GOPATH
 	bctx.GOROOT = ""
@@ -60,7 +68,8 @@ func New(repoRoot, goPrefix string) (*Generator, error) {
 		repoRoot: filepath.Clean(repoRoot),
 		goPrefix: goPrefix,
 		bctx:     bctx,
-		g:        rules.NewGenerator(goPrefix),
+		g:        rules.NewGenerator(goPrefix, rules.Style(s)),
+		s:        s,
 	}, nil
 }
 
@@ -78,7 +87,7 @@ func (g *Generator) Generate(dir string) ([]*bzl.File, error) {
 		return nil, fmt.Errorf("dir %s is not under the repository root %s", dir, g.repoRoot)
 	}
 
-	var files []*bzl.File
+	b := builderForStyle(g.s)
 	err = packages.Walk(g.bctx, dir, func(pkg *build.Package) error {
 		rel, err := filepath.Rel(g.repoRoot, pkg.Dir)
 		if err != nil {
@@ -87,88 +96,46 @@ func (g *Generator) Generate(dir string) ([]*bzl.File, error) {
 		if rel == "." {
 			rel = ""
 		}
-		if len(files) == 0 && rel != "" {
+		if b.isEmpty() && rel != "" {
 			// "dir" was not a buildable Go package but still need a BUILD file
 			// for go_prefix.
-			files = append(files, emptyToplevel(g.goPrefix))
+			b.addRules("", emptyTopLevel(g.goPrefix))
 		}
 
-		file, err := g.generateOne(rel, pkg)
+		rs, err := g.g.Generate(filepath.ToSlash(rel), pkg)
 		if err != nil {
 			return err
 		}
-
-		files = append(files, file)
+		b.addRules(rel, rs)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return files, nil
+	return b.files(), nil
 }
 
-func emptyToplevel(goPrefix string) *bzl.File {
-	return &bzl.File{
-		Path: "BUILD",
-		Stmt: []bzl.Expr{
-			loadExpr("go_prefix"),
-			&bzl.CallExpr{
+func builderForStyle(s Style) fileBuilder {
+	switch s {
+	case StructuredStyle:
+		return new(structuredFileBuilder)
+	case FlatStyle:
+		return new(flatFileBuilder)
+	default:
+		panic(fmt.Sprintf("unrecognized style: %d", s))
+	}
+}
+
+func emptyToplevel(goPrefix string) []*bzl.Rule {
+	[]*bzl.Rule{
+		{
+			Call: &bzl.CallExpr{
 				X: &bzl.LiteralExpr{Token: "go_prefix"},
 				List: []bzl.Expr{
 					&bzl.StringExpr{Value: goPrefix},
 				},
 			},
 		},
-	}
-}
-
-func (g *Generator) generateOne(rel string, pkg *build.Package) (*bzl.File, error) {
-	rs, err := g.g.Generate(filepath.ToSlash(rel), pkg)
-	if err != nil {
-		return nil, err
-	}
-
-	file := &bzl.File{Path: filepath.Join(rel, "BUILD")}
-	for _, r := range rs {
-		file.Stmt = append(file.Stmt, r.Call)
-	}
-	if load := g.generateLoad(file); load != nil {
-		file.Stmt = append([]bzl.Expr{load}, file.Stmt...)
-	}
-	return file, nil
-}
-
-func (g *Generator) generateLoad(f *bzl.File) bzl.Expr {
-	var list []string
-	for _, kind := range []string{
-		"go_prefix",
-		"go_library",
-		"go_binary",
-		"go_test",
-		// TODO(yugui): Support cgo_library
-	} {
-		if len(f.Rules(kind)) > 0 {
-			list = append(list, kind)
-		}
-	}
-	if len(list) == 0 {
-		return nil
-	}
-	return loadExpr(list...)
-}
-
-func loadExpr(rules ...string) bzl.Expr {
-	list := []bzl.Expr{
-		&bzl.StringExpr{Value: goRulesBzl},
-	}
-	for _, r := range rules {
-		list = append(list, &bzl.StringExpr{Value: r})
-	}
-
-	return &bzl.CallExpr{
-		X:            &bzl.LiteralExpr{Token: "load"},
-		List:         list,
-		ForceCompact: true,
 	}
 }
 
