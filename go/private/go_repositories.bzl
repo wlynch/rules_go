@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("//go/private:go_repository.bzl", "go_repository", "new_go_repository")
+load("//go/private:go_repository.bzl", "buildifier_repository_only_for_internal_use", "new_go_repository")
 
 repository_tool_deps = {
     'buildifier': struct(
@@ -29,7 +29,9 @@ repository_tool_deps = {
 
 def go_internal_tools_deps():
   """only for internal use in rules_go"""
-  go_repository(
+  # c.f. #135
+  # TODO(yugui) Simply use go_repository when we drop support of Bazel 0.3.2.
+  buildifier_repository_only_for_internal_use(
       name = "io_bazel_buildifier",
       commit = repository_tool_deps['buildifier'].commit,
       importpath = repository_tool_deps['buildifier'].importpath,
@@ -39,6 +41,9 @@ def go_internal_tools_deps():
       name = "org_golang_x_tools",
       commit = repository_tool_deps['tools'].commit,
       importpath = repository_tool_deps['tools'].importpath,
+      # c.f. #135
+      # TODO(yugui) Remove this attribute when we drop support of Bazel 0.3.2.
+      go_rules_bzl_only_for_internal_use = "@//go:def.bzl",
   )
 
 def _fetch_repository_tools_deps(ctx, goroot, gopath):
