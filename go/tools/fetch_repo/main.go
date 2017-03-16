@@ -19,18 +19,44 @@ import (
 )
 
 var (
-	remote = flag.String("remote", "", "Go importpath to the repository fetch")
-	rev    = flag.String("rev", "", "target revision")
-	dest   = flag.String("dest", "", "destination directory")
+	remote     = flag.String("remote", "", "The URI of the remote repository. Must be used with the --vcs flag.")
+	cmd        = flag.String("vcs", "", "Version control system to use to fetch the repository. Should be one of: git,hg,svn,bzr. Must be used with the --remote flag.")
+	rev        = flag.String("rev", "", "target revision")
+	dest       = flag.String("dest", "", "destination directory")
+	importpath = flag.String("importpath", "", "Go importpath to the repository fetch")
 )
 
+func getRepoRoot(remote, cmd, importpath string) (*vcs.RepoRoot, error) {
+	r := &vcs.RepoRoot{
+		VCS:  vcs.ByCmd(cmd),
+		Repo: remote,
+		Root: importpath,
+	}
+
+	if remote != "" && importpath == "" && cmd == "" {
+		// User passed in old-style arguments. Assume old behavior for now, but give a warning.
+		log.Println("WARNING: --remote should be used with the --vcs flag. If this is an import path, use --importpath instead.")
+		importpath = remote
+	}
+	if cmd == "" || remote == "" {
+		// User did not give us complete information for VCS / Remote.
+		// Try to figure out the information from the import path.
+		var err error
+		r, err = vcs.RepoRootForImportPath(importpath, true)
+		if err != nil {
+			return nil, err
+		}
+		if importpath != r.Root {
+			return nil, fmt.Errorf("not a root of a repository: %s", importpath)
+		}
+	}
+	return r, nil
+}
+
 func run() error {
-	r, err := vcs.RepoRootForImportPath(*remote, true)
+	r, err := getRepoRoot(*remote, *cmd, *importpath)
 	if err != nil {
 		return err
-	}
-	if *remote != r.Root {
-		return fmt.Errorf("not a root of a repository: %s", *remote)
 	}
 	return r.VCS.CreateAtRev(*dest, r.Repo, *rev)
 }
