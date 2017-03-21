@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"reflect"
 	"testing"
 
@@ -14,6 +15,14 @@ var (
 		Root: "github.com/bazeltest/rules_go",
 	}
 )
+
+func TestMain(m *testing.M) {
+	// Replace vcs.RepoRootForImportPath to disable any network calls.
+	repoRootForImportPath = func(_ string, _ bool) (*vcs.RepoRoot, error) {
+		return root, nil
+	}
+	os.Exit(m.Run())
+}
 
 func TestGetRepoRoot(t *testing.T) {
 	for _, tc := range []struct {
@@ -46,23 +55,6 @@ func TestGetRepoRoot(t *testing.T) {
 			importpath: "github.com/bazeltest/rules_go",
 			r:          root,
 		},
-		{
-			label:      "missing vcs",
-			remote:     "https://github.com/bazeltest/rules_go",
-			importpath: "github.com/bazeltest/rules_go",
-			r:          root,
-		},
-		{
-			label:      "missing remote",
-			cmd:        "git",
-			importpath: "github.com/bazeltest/rules_go",
-			r:          root,
-		},
-		{
-			label:  "old args",
-			remote: "github.com/bazeltest/rules_go",
-			r:      root,
-		},
 	} {
 		r, err := getRepoRoot(tc.remote, tc.cmd, tc.importpath)
 		if err != nil {
@@ -70,6 +62,36 @@ func TestGetRepoRoot(t *testing.T) {
 		}
 		if !reflect.DeepEqual(r, tc.r) {
 			t.Errorf("[%s] Expected %+v, got %+v", tc.label, tc.r, r)
+		}
+	}
+}
+
+func TestGetRepoRoot_error(t *testing.T) {
+	for _, tc := range []struct {
+		label      string
+		remote     string
+		cmd        string
+		importpath string
+		r          *vcs.RepoRoot
+	}{
+		{
+			label:  "importpath as remote",
+			remote: "github.com/bazeltest/rules_go",
+		},
+		{
+			label:      "missing vcs",
+			remote:     "https://github.com/bazeltest/rules_go",
+			importpath: "github.com/bazeltest/rules_go",
+		},
+		{
+			label:      "missing remote",
+			cmd:        "git",
+			importpath: "github.com/bazeltest/rules_go",
+		},
+	} {
+		r, err := getRepoRoot(tc.remote, tc.cmd, tc.importpath)
+		if err == nil {
+			t.Errorf("[%s] expected error. Got %+v", tc.label, r)
 		}
 	}
 }
