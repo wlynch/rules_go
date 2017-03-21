@@ -38,7 +38,7 @@ def _go_repository_impl(ctx):
       '--vcs', vcs,
       '--importpath', importpath])
   if result.return_code:
-    fail("failed to fetch %s: %s" % (remote, result.stderr))
+    fail("failed to fetch %s: %s" % (ctx.name, result.stderr))
 
 
 def _new_go_repository_impl(ctx):
@@ -64,7 +64,7 @@ _go_repository_attrs = {
     "build_file_name": attr.string(),
     "importpath": attr.string(),
     "remote": attr.string(),
-    "vcs": attr.string(default="git", values=["git", "hg", "svn", "bzr"]),
+    "vcs": attr.string(default="", values=["", "git", "hg", "svn", "bzr"]),
     "commit": attr.string(),
     "tag": attr.string(),
     "build_tags": attr.string_list(),

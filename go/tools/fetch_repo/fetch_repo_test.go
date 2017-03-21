@@ -72,7 +72,6 @@ func TestGetRepoRoot_error(t *testing.T) {
 		remote     string
 		cmd        string
 		importpath string
-		r          *vcs.RepoRoot
 	}{
 		{
 			label:  "importpath as remote",
